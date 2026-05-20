@@ -148,6 +148,26 @@ export default function DashboardPage() {
     setActionLoading(null);
   };
 
+  const handleGrantAccess = async (storeId: string, planType: string) => {
+    setActionLoading(`grant-${storeId}`);
+    try {
+      const res = await fetch("/api/subscriptions/grant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeId, planType }),
+      });
+      if (res.ok) {
+        await fetchData();
+      } else {
+        const err = await res.json();
+        alert(`Grant failed: ${err.error || "Unknown error"}`);
+      }
+    } catch (e: any) {
+      alert(`Grant error: ${e.message}`);
+    }
+    setActionLoading(null);
+  };
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.replace("/");
@@ -323,7 +343,12 @@ export default function DashboardPage() {
               />
             ) : (
               subscriptions.map((sub) => (
-                <SubscriptionRow key={sub.id} subscription={sub} />
+                <SubscriptionRow 
+                  key={sub.id} 
+                  subscription={sub} 
+                  onGrant={(planType) => handleGrantAccess(sub.store_id, planType)}
+                  isGranting={actionLoading === `grant-${sub.store_id}`}
+                />
               ))
             )}
           </div>
@@ -645,8 +670,12 @@ function HistoryRow({ request }: { request: SubscriptionRequest }) {
 
 function SubscriptionRow({
   subscription,
+  onGrant,
+  isGranting,
 }: {
   subscription: StoreSubscription;
+  onGrant: (planType: string) => void;
+  isGranting: boolean;
 }) {
   const endDate = subscription.end_date
     ? new Date(subscription.end_date)
@@ -695,7 +724,7 @@ function SubscriptionRow({
           ₱{Number(subscription.amount_paid || 0).toLocaleString()}
         </p>
         <span
-          className="text-[10px] font-black uppercase tracking-widest"
+          className="text-[10px] font-black uppercase tracking-widest block mb-2"
           style={{
             color: isActive
               ? "var(--color-success)"
@@ -706,6 +735,32 @@ function SubscriptionRow({
         >
           {isActive ? "ACTIVE" : isExpired ? "EXPIRED" : subscription.status}
         </span>
+        
+        {!isActive && (
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => onGrant("trial")}
+              disabled={isGranting}
+              className="px-3 py-1 bg-[var(--color-primary-light)] text-[var(--color-primary)] border border-[var(--color-primary-border)] hover:bg-[var(--color-primary)]/20 text-xs font-bold rounded-lg transition-all disabled:opacity-50"
+            >
+              + Trial
+            </button>
+            <button
+              onClick={() => onGrant("monthly")}
+              disabled={isGranting}
+              className="px-3 py-1 bg-[var(--color-success-light)] text-[var(--color-success)] border border-[var(--color-success-border)] hover:bg-[var(--color-success)]/20 text-xs font-bold rounded-lg transition-all disabled:opacity-50"
+            >
+              + Month
+            </button>
+            <button
+              onClick={() => onGrant("annual")}
+              disabled={isGranting}
+              className="px-3 py-1 bg-[var(--color-success-light)] text-[var(--color-success)] border border-[var(--color-success-border)] hover:bg-[var(--color-success)]/20 text-xs font-bold rounded-lg transition-all disabled:opacity-50"
+            >
+              + Year
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

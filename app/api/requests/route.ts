@@ -1,14 +1,16 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const supabase = createAdminClient();
 
-    // Fetch all subscription requests with store info
+    // Fetch all subscription requests with store name and user info using Joins
     const { data: requests, error } = await supabase
       .from("subscription_requests")
-      .select("*")
+      .select("*, stores(store_name), users!subscription_requests_requester_user_id_fkey(first_name, last_name, email)")
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -16,35 +18,30 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Enrich with store names and user info
-    const enriched = await Promise.all(
-      (requests || []).map(async (req) => {
-        // Get store name
-        const { data: store } = await supabase
-          .from("stores")
-          .select("store_name")
-          .eq("store_id", req.store_id)
-          .single();
+    // Map the nested objects into a flat structure
+    const enriched = (requests || []).map((req: any) => {
+      const storeName = req.stores?.store_name || "Unknown Store";
+      const user = req.users;
+      return {
+        ...req,
+        store_name: storeName,
+        requester_name: user
+          ? `${user.first_name || ""} ${user.last_name || ""}`.trim()
+          : "Unknown",
+        requester_email: user?.email || null,
+        stores: undefined,
+        users: undefined,
+      };
+    });
 
-        // Get requester info
-        const { data: user } = await supabase
-          .from("users")
-          .select("first_name, last_name, email")
-          .eq("user_id", req.requester_user_id)
-          .single();
-
-        return {
-          ...req,
-          store_name: store?.store_name || "Unknown Store",
-          requester_name: user
-            ? `${user.first_name || ""} ${user.last_name || ""}`.trim()
-            : "Unknown",
-          requester_email: user?.email || null,
-        };
-      })
+    return NextResponse.json(
+      { requests: enriched },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=15, stale-while-revalidate=30",
+        },
+      }
     );
-
-    return NextResponse.json({ requests: enriched });
   } catch (error) {
     console.error("Requests API error:", error);
     return NextResponse.json(
