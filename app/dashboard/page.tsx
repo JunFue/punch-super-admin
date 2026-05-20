@@ -57,9 +57,14 @@ interface StoreSubscription {
   start_date: string;
   end_date: string;
   store_name?: string;
+  is_deleted?: boolean;
+  created_at?: string | null;
+  owner_name?: string;
+  owner_email?: string;
 }
 
 type Tab = "pending" | "history" | "subscriptions";
+type SortOption = "alphabetical" | "newest" | "oldest" | "status" | "owner";
 
 // ============================================================
 // Dashboard Page
@@ -75,6 +80,8 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [sortOption, setSortOption] = useState<SortOption>("alphabetical");
 
   // Auth check
   useEffect(() => {
@@ -97,22 +104,31 @@ export default function DashboardPage() {
   // Fetch data
   const fetchData = useCallback(async () => {
     setRefreshing(true);
+    try {
+      // Fetch all subscription requests using the API route (service role)
+      const reqRes = await fetch("/api/requests");
+      if (reqRes.ok) {
+        const data = await reqRes.json();
+        setRequests(data.requests || []);
+      } else {
+        const err = await reqRes.json();
+        console.error("Requests fetch failed:", err);
+      }
 
-    // Fetch all subscription requests using the API route (service role)
-    const reqRes = await fetch("/api/requests");
-    if (reqRes.ok) {
-      const data = await reqRes.json();
-      setRequests(data.requests || []);
+      // Fetch all store subscriptions
+      const subRes = await fetch("/api/subscriptions");
+      if (subRes.ok) {
+        const data = await subRes.json();
+        setSubscriptions(data.subscriptions || []);
+      } else {
+        const err = await subRes.json();
+        console.error("Subscriptions fetch failed:", err);
+      }
+    } catch (e: any) {
+      console.error("Fetch error:", e);
+    } finally {
+      setRefreshing(false);
     }
-
-    // Fetch all store subscriptions
-    const subRes = await fetch("/api/subscriptions");
-    if (subRes.ok) {
-      const data = await subRes.json();
-      setSubscriptions(data.subscriptions || []);
-    }
-
-    setRefreshing(false);
   }, []);
 
   useEffect(() => {
@@ -334,23 +350,85 @@ export default function DashboardPage() {
         )}
 
         {activeTab === "subscriptions" && (
-          <div className="space-y-3 animate-fade-in">
-            {subscriptions.length === 0 ? (
-              <EmptyState
-                icon={<Store className="w-12 h-12" />}
-                title="No Subscriptions"
-                description="Store subscriptions will appear here."
-              />
-            ) : (
-              subscriptions.map((sub) => (
-                <SubscriptionRow 
-                  key={sub.id} 
-                  subscription={sub} 
-                  onGrant={(planType) => handleGrantAccess(sub.store_id, planType)}
-                  isGranting={actionLoading === `grant-${sub.store_id}`}
-                />
-              ))
-            )}
+          <div className="space-y-4 animate-fade-in">
+            {/* Filters & Sort */}
+            <div className="flex flex-col sm:flex-row gap-3 justify-between items-center bg-[var(--color-bg-card)] border border-[var(--color-border)] p-3 rounded-xl mb-4">
+              <div className="flex items-center gap-3 w-full sm:w-auto overflow-x-auto">
+                <span className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider shrink-0">Sort By</span>
+                <select
+                  value={sortOption}
+                  onChange={(e) => setSortOption(e.target.value as SortOption)}
+                  className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary)] transition-all cursor-pointer"
+                >
+                  <option value="alphabetical">Alphabetical</option>
+                  <option value="newest">Newest First</option>
+                  <option value="oldest">Oldest First</option>
+                  <option value="status">Status</option>
+                  <option value="owner">Owner Name</option>
+                </select>
+              </div>
+
+              <button
+                onClick={() => setShowDeleted(!showDeleted)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shrink-0 ${
+                  showDeleted 
+                    ? "bg-[var(--color-danger-light)] border-[var(--color-danger-border)] text-[var(--color-danger)]"
+                    : "bg-[var(--color-bg)] border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:border-[var(--color-text-muted)]"
+                }`}
+                title={showDeleted ? "Hide Deleted Stores" : "Show Deleted Stores"}
+              >
+                <AlertCircle className="w-3.5 h-3.5" />
+                {showDeleted ? "Showing Deleted" : "Hidden Deleted"}
+              </button>
+            </div>
+
+            {(() => {
+              let sorted = [...subscriptions].filter(s => showDeleted || !s.is_deleted);
+              
+              if (sortOption === "alphabetical") {
+                sorted.sort((a, b) => (a.store_name || "").localeCompare(b.store_name || ""));
+              } else if (sortOption === "newest") {
+                sorted.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+              } else if (sortOption === "oldest") {
+                sorted.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+              } else if (sortOption === "status") {
+                sorted.sort((a, b) => {
+                  const getStatusPriority = (sub: StoreSubscription) => {
+                    const endDate = sub.end_date ? new Date(sub.end_date) : null;
+                    if (sub.status === "PAID" && endDate && endDate > new Date()) return 1; // Active
+                    if (sub.plan_type === "trial") return 2; // Trial
+                    if (endDate && endDate <= new Date()) return 3; // Expired
+                    return 4; // Other
+                  };
+                  return getStatusPriority(a) - getStatusPriority(b);
+                });
+              } else if (sortOption === "owner") {
+                sorted.sort((a, b) => (a.owner_name || "").localeCompare(b.owner_name || ""));
+              }
+
+              if (sorted.length === 0) {
+                return (
+                  <EmptyState
+                    icon={<Store className="w-12 h-12" />}
+                    title={showDeleted ? "No Stores Found" : "No Active Stores"}
+                    description={showDeleted ? "No store subscriptions were found." : "Deleted stores are hidden. Use the toggle above to show them."}
+                  />
+                );
+              }
+
+              return (
+                <div className="space-y-3">
+                  {sorted.map((sub) => (
+                    <SubscriptionRow 
+                      key={sub.id} 
+                      subscription={sub} 
+                      onGrant={(planType) => handleGrantAccess(sub.store_id, planType)}
+                      isGranting={actionLoading === `grant-${sub.store_id}`}
+                    />
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
       </main>
@@ -683,16 +761,23 @@ function SubscriptionRow({
   const isActive =
     subscription.status === "PAID" && endDate && endDate > new Date();
   const isExpired = endDate && endDate <= new Date();
+  const isDeleted = subscription.is_deleted;
 
   return (
-    <div className="bg-[var(--color-bg-card)] border border-[var(--color-border)] rounded-xl p-4 flex items-center gap-4">
+    <div className={`bg-[var(--color-bg-card)] border rounded-xl p-4 flex items-center gap-4 transition-all ${
+      isDeleted ? "opacity-60 border-dashed border-[var(--color-danger-border)]" : "border-[var(--color-border)]"
+    }`}>
       <div
         className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border"
         style={{
-          backgroundColor: isActive
+          backgroundColor: isDeleted
+            ? "var(--color-danger-light)"
+            : isActive
             ? "var(--color-success-light)"
             : "var(--color-bg-elevated)",
-          borderColor: isActive
+          borderColor: isDeleted
+            ? "var(--color-danger-border)"
+            : isActive
             ? "var(--color-success-border)"
             : "var(--color-border)",
         }}
@@ -700,7 +785,9 @@ function SubscriptionRow({
         <Store
           className="w-5 h-5"
           style={{
-            color: isActive
+            color: isDeleted
+              ? "var(--color-danger)"
+              : isActive
               ? "var(--color-success)"
               : "var(--color-text-muted)",
           }}
@@ -708,9 +795,22 @@ function SubscriptionRow({
       </div>
 
       <div className="flex-1 min-w-0">
-        <p className="font-bold text-sm text-[var(--color-text)] truncate">
-          {subscription.store_name || subscription.store_id.slice(0, 8)}
-        </p>
+        <div className="flex items-center gap-2 mb-0.5">
+          <p className="font-bold text-sm text-[var(--color-text)] truncate">
+            {subscription.store_name || subscription.store_id.slice(0, 8)}
+          </p>
+          {isDeleted && (
+            <span className="px-1.5 py-0.5 bg-[var(--color-danger-light)] border border-[var(--color-danger-border)] text-[var(--color-danger)] text-[8px] font-black uppercase tracking-widest rounded">
+              Deleted
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mb-0.5">
+          <User className="w-3 h-3 text-[var(--color-text-muted)] shrink-0" />
+          <p className="text-xs font-medium text-[var(--color-text-secondary)] truncate">
+            {subscription.owner_name} <span className="text-[var(--color-text-muted)] hidden sm:inline">({subscription.owner_email})</span>
+          </p>
+        </div>
         <p className="text-xs text-[var(--color-text-muted)]">
           <span className="capitalize">{subscription.plan_type || "monthly"}</span> ·{" "}
           {endDate

@@ -13,16 +13,23 @@ export async function GET() {
       .select(`
         store_id, 
         store_name, 
+        deleted_at,
+        users (
+          email,
+          first_name,
+          last_name
+        ),
         store_subscriptions(
           id, 
           status, 
           plan_type, 
           amount_paid, 
           start_date, 
-          end_date
+          end_date,
+          created_at
         )
       `)
-      .order("created_at", { ascending: false });
+      .order("store_name", { ascending: true });
 
     if (error) {
       console.error("Failed to fetch stores & subscriptions:", error);
@@ -36,6 +43,8 @@ export async function GET() {
         ? store.store_subscriptions[0] 
         : store.store_subscriptions;
 
+      const user = Array.isArray(store.users) ? store.users[0] : store.users;
+
       return {
         id: sub?.id || `no-sub-${store.store_id}`,
         store_id: store.store_id,
@@ -45,6 +54,10 @@ export async function GET() {
         amount_paid: sub?.amount_paid || 0,
         start_date: sub?.start_date || null,
         end_date: sub?.end_date || null,
+        created_at: sub?.created_at || null,
+        is_deleted: !!store.deleted_at,
+        owner_name: user ? `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email : "Unknown",
+        owner_email: user?.email || "Unknown",
       };
     });
 

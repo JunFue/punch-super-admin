@@ -10,7 +10,7 @@ export async function GET() {
     // Fetch all subscription requests with store name and user info using Joins
     const { data: requests, error } = await supabase
       .from("subscription_requests")
-      .select("*, stores(store_name), users!subscription_requests_requester_user_id_fkey(first_name, last_name, email)")
+      .select("*, stores(store_name), users(first_name, last_name, email)")
       .order("created_at", { ascending: false });
 
     if (error) {
