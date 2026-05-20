@@ -34,8 +34,8 @@ interface SubscriptionRequest {
   id: string;
   store_id: string;
   requester_user_id: string;
-  plan_type: "monthly" | "annual";
-  payment_method: "gcash_to_gcash" | "otc_to_gcash";
+  plan_type: "monthly" | "annual" | "trial";
+  payment_method: "gcash_to_gcash" | "otc_to_gcash" | "none";
   amount: number;
   status: "pending" | "approved" | "rejected";
   gcash_reference: string | null;
@@ -481,12 +481,16 @@ function RequestCard({
             <DetailRow
               label="Payment Method"
               value={
-                request.payment_method === "gcash_to_gcash"
+                request.payment_method === "none"
+                  ? "No Payment Required (Trial)"
+                  : request.payment_method === "gcash_to_gcash"
                   ? "GCash to GCash"
                   : "Over-the-Counter"
               }
               icon={
-                request.payment_method === "gcash_to_gcash" ? (
+                request.payment_method === "none" ? (
+                  <Sparkles className="w-3.5 h-3.5" />
+                ) : request.payment_method === "gcash_to_gcash" ? (
                   <Smartphone className="w-3.5 h-3.5" />
                 ) : (
                   <Building2 className="w-3.5 h-3.5" />

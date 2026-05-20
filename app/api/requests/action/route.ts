@@ -59,6 +59,8 @@ export async function POST(req: Request) {
 
       if (request.plan_type === "annual") {
         endDate.setFullYear(startDate.getFullYear() + 1);
+      } else if (request.plan_type === "trial") {
+        endDate.setDate(startDate.getDate() + 7);
       } else {
         endDate.setDate(startDate.getDate() + 30);
       }
@@ -68,15 +70,17 @@ export async function POST(req: Request) {
         .upsert(
           {
             store_id: request.store_id,
-            status: "PAID",
+            status: request.plan_type === "trial" ? "TRIAL" : "PAID",
             plan_type: request.plan_type,
             amount_paid: request.amount,
             payer_user_id: request.requester_user_id,
             start_date: startDate.toISOString(),
             end_date: endDate.toISOString(),
-            reference_notes: request.gcash_reference
-              ? `GCash Ref: ${request.gcash_reference}`
-              : `Approved via Super Admin`,
+            reference_notes: request.plan_type === "trial" 
+              ? "Approved 7-Day Free Trial" 
+              : (request.gcash_reference
+                ? `GCash Ref: ${request.gcash_reference}`
+                : `Approved via Super Admin`),
             updated_at: new Date().toISOString(),
           },
           { onConflict: "store_id" }
