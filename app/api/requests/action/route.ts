@@ -97,6 +97,28 @@ export async function POST(req: Request) {
       console.log(
         `✅ Subscription APPROVED for store ${request.store_id} — ${request.plan_type} plan until ${endDate.toISOString()}`
       );
+
+      // Attempt to send SMS confirmation to the subscriber if phone number is available
+      try {
+        const { data: userRecord } = await supabase
+          .from("users")
+          .select("metadata")
+          .eq("user_id", request.requester_user_id)
+          .single();
+
+        const userPhone = (userRecord?.metadata as any)?.phone || (userRecord?.metadata as any)?.phone_number;
+        if (userPhone) {
+          const { sendSubscriptionApprovedSms } = await import("@/lib/sms");
+          await sendSubscriptionApprovedSms({
+            storeName: `Store ${request.store_id.slice(0, 8)}`,
+            recipientPhone: userPhone,
+            planType: request.plan_type,
+            expiryDate: endDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          });
+        }
+      } catch (smsErr) {
+        console.log("Subscriber approval SMS skipped/failed:", smsErr);
+      }
     } else {
       console.log(
         `❌ Subscription REJECTED for store ${request.store_id}`
