@@ -74,14 +74,20 @@ export async function sendSms({ to, message, senderName }: SendSmsParams): Promi
         body: new URLSearchParams(payload).toString(),
       });
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        data = rawText;
+      }
 
       if (!response.ok) {
-        console.error("Semaphore SMS error:", data);
+        console.error("Semaphore SMS error:", response.status, data);
         return {
           success: false,
           provider: "semaphore",
-          error: Array.isArray(data) ? data[0]?.message : JSON.stringify(data),
+          error: typeof data === "string" ? data : Array.isArray(data) ? data[0]?.message : JSON.stringify(data),
         };
       }
 
@@ -151,6 +157,41 @@ export async function sendSms({ to, message, senderName }: SendSmsParams): Promi
 }
 
 /**
+ * Send a notification via Telegram Bot API
+ */
+export async function sendTelegramMessage(text: string): Promise<{ success: boolean; error?: string }> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+
+  if (!token || !chatId) {
+    return { success: false, error: "Telegram bot token or chat ID not set" };
+  }
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error("Telegram API error:", err);
+      return { success: false, error: err };
+    }
+
+    console.log("✅ Telegram alert dispatched to chat:", chatId);
+    return { success: true };
+  } catch (err: any) {
+    console.error("Telegram dispatch exception:", err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * Notify store owner when subscription is activated / approved
  */
 export async function sendSubscriptionApprovedSms({
@@ -165,6 +206,8 @@ export async function sendSubscriptionApprovedSms({
   expiryDate: string;
 }): Promise<SendSmsResult> {
   const message = `[PUNCH POS] 🎉 Congratulations! Your ${planType.toUpperCase()} subscription for ${storeName} has been APPROVED!\nValid until: ${expiryDate}.\nThank you for choosing PUNCH POS!`;
+
+  sendTelegramMessage(message).catch((e) => console.error("Telegram approved notify failed:", e));
 
   return await sendSms({
     to: recipientPhone,
